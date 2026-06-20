@@ -110,6 +110,7 @@ function useHeading(origin) {
   const lastRawHeadingRef = useRef(0);
   const cleanupOrientationRef = useRef(null);
   const frameRef = useRef(null);
+  const sensorSourceRef = useRef('manual');
 
   const heading = normalizeDegrees(rawHeading + offset);
 
@@ -137,33 +138,52 @@ function useHeading(origin) {
   }, []);
 
   function commitHeading(nextHeading, nextSource, accuracy) {
+    // Source locking fixes compass/relative bouncing.
+    // Once a true compass source is active, relative alpha events are ignored.
+    // Relative can be used only when it is the only available source.
+    const currentSensorSource = sensorSourceRef.current;
+
+    if (currentSensorSource === 'compass' && nextSource !== 'compass') {
+      return;
+    }
+
+    if (currentSensorSource === 'relative' && nextSource === 'compass') {
+      sensorSourceRef.current = 'compass';
+    } else if (currentSensorSource === 'manual' || currentSensorSource === 'course') {
+      sensorSourceRef.current = nextSource;
+    }
+
+    const activeSensorSource = sensorSourceRef.current;
+
+    if (nextSource !== activeSensorSource) {
+      return;
+    }
+
     const normalized = normalizeDegrees(nextHeading);
     const previous = lastRawHeadingRef.current;
     const deltaSigned = signedAngleDelta(previous, normalized);
     const delta = Math.abs(deltaSigned);
 
-    if (delta < HEADING_EPSILON_DEGREES && nextSource === source) return;
+    if (delta < HEADING_EPSILON_DEGREES && activeSensorSource === source) return;
 
-    // Simplest possible smoothing:
-    // - first compass/relative reading snaps immediately so the feature works;
-    // - later readings move part-way toward the new sensor value;
-    // - circular math handles 359° -> 0° correctly.
-    const shouldSnap = source === 'manual' || source === 'course' || nextSource !== source;
+    // Very simple low-pass smoothing. First accepted reading snaps, then
+    // subsequent readings from the same locked source move gradually.
+    const shouldSnap = source === 'manual' || source === 'course' || activeSensorSource !== source;
     const smoothing = shouldSnap ? 1 : 0.18;
     const smoothed = normalizeDegrees(previous + deltaSigned * smoothing);
 
     lastRawHeadingRef.current = smoothed;
     setRawHeading(smoothed);
-    setSource(nextSource);
+    setSource(activeSensorSource);
 
-    if (nextSource === 'compass') {
+    if (activeSensorSource === 'compass') {
       setStatus(
         accuracy
-          ? `Compass active. Smoothed. Reported accuracy: ±${Math.round(accuracy)}°.`
-          : 'Compass active. Smoothed.'
+          ? `Compass active. Source locked. Smoothed. Reported accuracy: ±${Math.round(accuracy)}°.`
+          : 'Compass active. Source locked. Smoothed.'
       );
     } else {
-      setStatus('Relative orientation active. Smoothed. On Android this may not be true north — point at a selected place and tap Calibrate.');
+      setStatus('Relative orientation active. Source locked. Smoothed. Point at a selected place and tap Calibrate if needed.');
     }
   }
 
@@ -192,6 +212,7 @@ function useHeading(origin) {
       }
 
       if (cleanupOrientationRef.current) cleanupOrientationRef.current();
+      sensorSourceRef.current = 'manual';
 
       const onOrientation = (event) => {
         const result = extractDeviceHeading(event);
@@ -222,6 +243,7 @@ function useHeading(origin) {
     const next = normalizeDegrees(rawHeading + deltaDegrees);
     setRawHeading(next);
     lastRawHeadingRef.current = next;
+    sensorSourceRef.current = 'manual';
     setSource('manual');
     setStatus('Manual heading override active.');
   }
@@ -230,11 +252,13 @@ function useHeading(origin) {
     const next = normalizeDegrees(nextHeading);
     setRawHeading(next);
     lastRawHeadingRef.current = next;
+    sensorSourceRef.current = 'manual';
     setSource('manual');
     setStatus('Manual heading override active.');
   }
 
   function useMovementHeading() {
+    sensorSourceRef.current = 'course';
     setSource('course');
     setStatus('Movement heading enabled. Move several metres with GPS on so heading can update.');
   }
