@@ -1,6 +1,3 @@
-Discord: https://discord.gg/XDM4JbV5s
-
-
 # Scenic Transit Guide
 
 A hackathon-friendly fixed-route transit tour guide. Pick a bus/train route, start a simulated ride, and the app announces scenic landmarks as you pass them.
