@@ -138,22 +138,32 @@ function useHeading(origin) {
 
   function commitHeading(nextHeading, nextSource, accuracy) {
     const normalized = normalizeDegrees(nextHeading);
-    const delta = Math.abs(signedAngleDelta(lastRawHeadingRef.current, normalized));
+    const previous = lastRawHeadingRef.current;
+    const deltaSigned = signedAngleDelta(previous, normalized);
+    const delta = Math.abs(deltaSigned);
 
     if (delta < HEADING_EPSILON_DEGREES && nextSource === source) return;
 
-    lastRawHeadingRef.current = normalized;
-    setRawHeading(normalized);
+    // Simplest possible smoothing:
+    // - first compass/relative reading snaps immediately so the feature works;
+    // - later readings move part-way toward the new sensor value;
+    // - circular math handles 359° -> 0° correctly.
+    const shouldSnap = source === 'manual' || source === 'course' || nextSource !== source;
+    const smoothing = shouldSnap ? 1 : 0.18;
+    const smoothed = normalizeDegrees(previous + deltaSigned * smoothing);
+
+    lastRawHeadingRef.current = smoothed;
+    setRawHeading(smoothed);
     setSource(nextSource);
 
     if (nextSource === 'compass') {
       setStatus(
         accuracy
-          ? `Compass active. Reported accuracy: ±${Math.round(accuracy)}°.`
-          : 'Compass active.'
+          ? `Compass active. Smoothed. Reported accuracy: ±${Math.round(accuracy)}°.`
+          : 'Compass active. Smoothed.'
       );
     } else {
-      setStatus('Relative orientation active. On Android this may not be true north — point at a selected place and tap Calibrate.');
+      setStatus('Relative orientation active. Smoothed. On Android this may not be true north — point at a selected place and tap Calibrate.');
     }
   }
 
