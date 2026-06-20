@@ -6,6 +6,16 @@ import { formatMeters } from '../utils/geo.js';
 const EARTH_RADIUS_METERS = 6371000;
 const HEADING_EPSILON_DEGREES = 1.5;
 
+const CATEGORY_META = {
+  transit: { label: 'Transit', color: '#38bdf8', symbol: '◇' },
+  comfort: { label: 'Comfort', color: '#22c55e', symbol: '●' },
+  food: { label: 'Food', color: '#f59e0b', symbol: '◉' },
+  culture: { label: 'Culture', color: '#c084fc', symbol: '◆' },
+  landmark: { label: 'Landmark', color: '#f43f5e', symbol: '★' },
+  sport: { label: 'Sport', color: '#facc15', symbol: '⬢' },
+  default: { label: 'Place', color: '#94a3b8', symbol: '•' }
+};
+
 function normalizeDegrees(value) {
   return ((value % 360) + 360) % 360;
 }
@@ -42,7 +52,6 @@ function bearingDegrees(from, to) {
 }
 
 function extractDeviceHeading(event) {
-  // iOS Safari exposes the closest thing to a real compass heading here.
   if (typeof event.webkitCompassHeading === 'number') {
     return {
       heading: normalizeDegrees(event.webkitCompassHeading),
@@ -53,7 +62,6 @@ function extractDeviceHeading(event) {
     };
   }
 
-  // Standard API path. On Android Chrome, alpha is often relative, not true north.
   if (typeof event.alpha === 'number') {
     return {
       heading: normalizeDegrees(360 - event.alpha),
@@ -63,6 +71,23 @@ function extractDeviceHeading(event) {
   }
 
   return null;
+}
+
+function categoryKey(place) {
+  const raw = String(place?.category ?? '').toLowerCase();
+
+  if (raw.includes('transit') || raw.includes('station') || raw.includes('bus')) return 'transit';
+  if (raw.includes('washroom') || raw.includes('water') || raw.includes('comfort') || raw.includes('toilet')) return 'comfort';
+  if (raw.includes('food') || raw.includes('cafe') || raw.includes('restaurant')) return 'food';
+  if (raw.includes('culture') || raw.includes('museum') || raw.includes('art') || raw.includes('historic')) return 'culture';
+  if (raw.includes('landmark') || raw.includes('view') || raw.includes('attraction')) return 'landmark';
+  if (raw.includes('sport') || raw.includes('stadium') || raw.includes('field')) return 'sport';
+
+  return 'default';
+}
+
+function categoryMeta(place) {
+  return CATEGORY_META[categoryKey(place)] ?? CATEGORY_META.default;
 }
 
 function detailLine(place) {
@@ -92,7 +117,6 @@ function useHeading(origin) {
     const previous = lastOriginRef.current;
     const movedMeters = distanceMetersLocal(previous, origin);
 
-    // GPS course fallback. Conservative threshold avoids jitter-driven spinning.
     if (movedMeters >= 8 && source !== 'compass' && source !== 'relative') {
       const nextHeading = bearingDegrees(previous, origin);
       setRawHeading(nextHeading);
@@ -116,7 +140,6 @@ function useHeading(origin) {
     const normalized = normalizeDegrees(nextHeading);
     const delta = Math.abs(signedAngleDelta(lastRawHeadingRef.current, normalized));
 
-    // Avoid re-render storms from noisy sensor events on mobile.
     if (delta < HEADING_EPSILON_DEGREES && nextSource === source) return;
 
     lastRawHeadingRef.current = normalized;
@@ -209,7 +232,6 @@ function useHeading(origin) {
   function calibrateToBearing(targetBearing) {
     if (!Number.isFinite(targetBearing)) return;
 
-    // User points the top of the phone at the selected target.
     setOffset(normalizeDegrees(targetBearing - rawHeading));
     setStatus('Calibrated: current phone direction now points at the selected place.');
   }
@@ -227,12 +249,43 @@ function useHeading(origin) {
   };
 }
 
-function CompassScope({ origin, places, selectedPlaceId, onSelectPlace, heading, radiusMeters }) {
-  const visiblePlaces = places.slice(0, 18);
+function ScopeLegend({ places }) {
+  const keys = Array.from(new Set(places.slice(0, 18).map(categoryKey)));
+
+  return (
+    <div className="scope-legend" aria-label="Radar place categories">
+      {keys.map((key) => {
+        const meta = CATEGORY_META[key] ?? CATEGORY_META.default;
+
+        return (
+          <span className="scope-legend-item" key={key}>
+            <span
+              className="scope-legend-dot"
+              style={{ '--place-color': meta.color }}
+              aria-hidden="true"
+            />
+            {meta.label}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+function CompassScope({
+  origin,
+  places,
+  selectedPlaceId,
+  onSelectPlace,
+  heading,
+  radiusMeters,
+  fullscreen = false
+}) {
+  const visiblePlaces = places.slice(0, fullscreen ? 28 : 18);
   const selectedPlace = places.find((place) => place.id === selectedPlaceId) ?? places[0];
 
   return (
-    <div className="compass-scope" aria-label="Compass radar scope">
+    <div className={`compass-scope ${fullscreen ? 'compass-scope-large' : ''}`} aria-label="Compass radar scope">
       <div className="scope-grid" />
       <div className="scope-forward">▲</div>
       <div className="scope-heading">{Math.round(heading)}°</div>
@@ -248,16 +301,22 @@ function CompassScope({ origin, places, selectedPlaceId, onSelectPlace, heading,
         const y = 50 - Math.cos(angleRadians) * distanceRatio * 43;
         const isSelected = selectedPlace?.id === place.id;
         const isAligned = isSelected && Math.abs(relativeBearing) <= 10;
+        const meta = categoryMeta(place);
 
         return (
           <button
             key={place.id}
             type="button"
-            className={`scope-dot ${isSelected ? 'selected' : ''} ${isAligned ? 'aligned' : ''}`}
-            style={{ left: `${x}%`, top: `${y}%` }}
-            title={`${place.name} · ${Math.round(relativeBearing)}° relative`}
+            className={`scope-dot scope-dot-${categoryKey(place)} ${isSelected ? 'selected' : ''} ${isAligned ? 'aligned' : ''}`}
+            style={{
+              left: `${x}%`,
+              top: `${y}%`,
+              '--place-color': meta.color,
+              '--place-symbol': `"${meta.symbol}"`
+            }}
+            title={`${place.name} · ${meta.label} · ${Math.round(relativeBearing)}° relative`}
             onClick={() => onSelectPlace(place.id)}
-            aria-label={`Select ${place.name}`}
+            aria-label={`Select ${place.name}, ${meta.label}`}
           >
             <span />
           </button>
@@ -268,9 +327,77 @@ function CompassScope({ origin, places, selectedPlaceId, onSelectPlace, heading,
         <div className="scope-target-readout" aria-live="polite">
           <strong>{selectedPlace.name}</strong>
           <span>
-            bearing {Math.round(bearingDegrees(origin, selectedPlace))}° ·{' '}
+            {categoryMeta(selectedPlace).label} · bearing {Math.round(bearingDegrees(origin, selectedPlace))}° ·{' '}
             {Math.round(signedAngleDelta(heading, bearingDegrees(origin, selectedPlace)))}° off
           </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FullscreenRadar({
+  origin,
+  places,
+  selectedPlaceId,
+  onSelectPlace,
+  heading,
+  radiusMeters,
+  onClose
+}) {
+  const selectedPlace = places.find((place) => place.id === selectedPlaceId) ?? places[0];
+
+  useEffect(() => {
+    document.body.classList.add('radar-fullscreen-open');
+
+    return () => {
+      document.body.classList.remove('radar-fullscreen-open');
+    };
+  }, []);
+
+  return (
+    <div className="radar-fullscreen" role="dialog" aria-modal="true" aria-label="Fullscreen city radar">
+      <div className="radar-fullscreen-topbar">
+        <div>
+          <p className="eyebrow">Fullscreen radar</p>
+          <h2>City scope</h2>
+        </div>
+        <button type="button" onClick={onClose}>Exit</button>
+      </div>
+
+      <CompassScope
+        origin={origin}
+        places={places}
+        selectedPlaceId={selectedPlaceId}
+        onSelectPlace={onSelectPlace}
+        heading={heading}
+        radiusMeters={radiusMeters}
+        fullscreen
+      />
+
+      <ScopeLegend places={places} />
+
+      {selectedPlace && (
+        <div className="radar-fullscreen-card">
+          <div className="direction-pill" style={{ '--place-color': categoryMeta(selectedPlace).color }}>
+            {categoryMeta(selectedPlace).label}
+          </div>
+          <h2>{selectedPlace.name}</h2>
+          <p>
+            {selectedPlace.category} · {formatMeters(selectedPlace.distanceMeters)} away · {selectedPlace.source}
+          </p>
+          <p>
+            Bearing {Math.round(bearingDegrees(origin, selectedPlace))}° · point offset{' '}
+            {Math.round(signedAngleDelta(heading, bearingDegrees(origin, selectedPlace)))}°
+          </p>
+          <a
+            className="directions-link"
+            href={directionsUrl(origin, selectedPlace)}
+            target="_blank"
+            rel="noreferrer"
+          >
+            Open walking directions
+          </a>
         </div>
       )}
     </div>
@@ -290,6 +417,7 @@ export default function StationaryPanel({
   isScanning,
   status
 }) {
+  const [isRadarFullscreen, setIsRadarFullscreen] = useState(false);
   const selectedPlace = places.find((place) => place.id === selectedPlaceId) ?? places[0];
 
   const {
@@ -308,6 +436,73 @@ export default function StationaryPanel({
     if (!selectedPlace) return null;
     return bearingDegrees(origin, selectedPlace);
   }, [origin, selectedPlace]);
+
+  useEffect(() => {
+    const onFullscreenChange = () => {
+      const fullscreenElement =
+        document.fullscreenElement ||
+        document.webkitFullscreenElement ||
+        document.msFullscreenElement;
+
+      if (!fullscreenElement) {
+        setIsRadarFullscreen(false);
+      }
+    };
+
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', onFullscreenChange);
+    document.addEventListener('MSFullscreenChange', onFullscreenChange);
+
+    return () => {
+      document.removeEventListener('fullscreenchange', onFullscreenChange);
+      document.removeEventListener('webkitfullscreenchange', onFullscreenChange);
+      document.removeEventListener('MSFullscreenChange', onFullscreenChange);
+    };
+  }, []);
+
+  function enterRadarFullscreen() {
+    setIsRadarFullscreen(true);
+
+    const target = document.documentElement;
+    const requestFullscreen =
+      target.requestFullscreen ||
+      target.webkitRequestFullscreen ||
+      target.msRequestFullscreen;
+
+    if (requestFullscreen) {
+      const result = requestFullscreen.call(target);
+
+      if (result && typeof result.catch === 'function') {
+        result.catch(() => {
+          // Keep the dedicated overlay visible even when the browser refuses
+          // true fullscreen. This commonly happens in embedded previews.
+          setIsRadarFullscreen(true);
+        });
+      }
+    }
+  }
+
+  function exitRadarFullscreen() {
+    setIsRadarFullscreen(false);
+
+    const fullscreenElement =
+      document.fullscreenElement ||
+      document.webkitFullscreenElement ||
+      document.msFullscreenElement;
+
+    const exitFullscreen =
+      document.exitFullscreen ||
+      document.webkitExitFullscreen ||
+      document.msExitFullscreen;
+
+    if (fullscreenElement && exitFullscreen) {
+      const result = exitFullscreen.call(document);
+
+      if (result && typeof result.catch === 'function') {
+        result.catch(() => {});
+      }
+    }
+  }
 
   return (
     <section className="panel stationary-panel">
@@ -367,6 +562,17 @@ export default function StationaryPanel({
           radiusMeters={radiusMeters}
         />
 
+        <ScopeLegend places={places} />
+
+        <button
+          type="button"
+          className="full-button radar-fullscreen-button"
+          onClick={enterRadarFullscreen}
+          disabled={places.length === 0}
+        >
+          Fullscreen radar
+        </button>
+
         <div className="compass-actions">
           <button type="button" onClick={startCompass}>Start compass</button>
           <button type="button" onClick={useMovementHeading}>Use movement heading</button>
@@ -399,7 +605,9 @@ export default function StationaryPanel({
 
       {selectedPlace && (
         <div className="selected-place-card">
-          <div className="direction-pill">Selected</div>
+          <div className="direction-pill" style={{ '--place-color': categoryMeta(selectedPlace).color }}>
+            {categoryMeta(selectedPlace).label}
+          </div>
           <h2>{selectedPlace.name}</h2>
           <p>
             {selectedPlace.category} · {formatMeters(selectedPlace.distanceMeters)} away · {selectedPlace.source}
@@ -426,25 +634,48 @@ export default function StationaryPanel({
         {places.length === 0 ? (
           <p className="muted-copy">No places loaded yet. Try the demo location or run a live scan.</p>
         ) : (
-          places.map((place) => (
-            <button
-              type="button"
-              className={`comfort-row ${place.id === selectedPlaceId ? 'active' : ''}`}
-              key={place.id}
-              onClick={() => onSelectPlace(place.id)}
-            >
-              <div>
-                <strong>{place.name}</strong>
-                <p>
-                  {place.category} · {formatMeters(place.distanceMeters)} away · {place.source}
-                </p>
-                {detailLine(place) && <small>{detailLine(place)}</small>}
-              </div>
-              <span>{place.category}</span>
-            </button>
-          ))
+          places.map((place) => {
+            const meta = categoryMeta(place);
+
+            return (
+              <button
+                type="button"
+                className={`comfort-row ${place.id === selectedPlaceId ? 'active' : ''}`}
+                key={place.id}
+                onClick={() => onSelectPlace(place.id)}
+              >
+                <div>
+                  <strong>
+                    <span
+                      className="place-type-chip-inline"
+                      style={{ '--place-color': meta.color }}
+                      aria-hidden="true"
+                    />
+                    {place.name}
+                  </strong>
+                  <p>
+                    {place.category} · {formatMeters(place.distanceMeters)} away · {place.source}
+                  </p>
+                  {detailLine(place) && <small>{detailLine(place)}</small>}
+                </div>
+                <span style={{ '--place-color': meta.color }}>{meta.label}</span>
+              </button>
+            );
+          })
         )}
       </div>
+
+      {isRadarFullscreen && (
+        <FullscreenRadar
+          origin={origin}
+          places={places}
+          selectedPlaceId={selectedPlaceId}
+          onSelectPlace={onSelectPlace}
+          heading={heading}
+          radiusMeters={radiusMeters}
+          onClose={exitRadarFullscreen}
+        />
+      )}
     </section>
   );
 }

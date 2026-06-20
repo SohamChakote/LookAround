@@ -1077,3 +1077,481 @@ button:disabled {
     min-height: 280px;
   }
 }
+
+
+/* Latest LookAround selected-place-card readability fix
+   Appended after all existing rules so it wins the cascade. */
+
+.selected-place-card {
+  background: #172033;
+  border-color: #172033;
+  color: #ffffff;
+}
+
+.selected-place-card h2,
+.selected-place-card h3,
+.selected-place-card strong,
+.selected-place-card span {
+  color: #ffffff;
+}
+
+.selected-place-card p {
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.selected-place-card .direction-pill {
+  background: rgba(255, 255, 255, 0.14);
+  color: #ffffff;
+}
+
+.selected-place-card .directions-link {
+  background: #ffffff;
+  color: #172033;
+}
+
+.selected-place-card a:not(.directions-link) {
+  color: #bae6fd;
+}
+
+/* Keep the sticky mobile version readable too. */
+@media (max-width: 640px) {
+  .selected-place-card {
+    background: #172033;
+    border-color: #172033;
+    color: #ffffff;
+  }
+
+  .selected-place-card h2,
+  .selected-place-card h3,
+  .selected-place-card strong,
+  .selected-place-card span {
+    color: #ffffff;
+  }
+
+  .selected-place-card p {
+    color: rgba(255, 255, 255, 0.82);
+  }
+}
+
+
+/* Radar dot position stability fix
+   Appended after all existing styles so it wins the cascade.
+
+   Problem:
+   .scope-dot is a <button>, so it can inherit global button padding/box behavior.
+   The selected visual dot also changes size. On mobile this can make the yellow
+   selected dot appear offset from the true polar-coordinate location.
+
+   Fix:
+   Keep the button/hit-target fixed at the computed left/top coordinate.
+   Absolutely center the inner visual dot.
+   Selection changes only scale/color/glow, not layout/margins.
+*/
+
+.compass-scope .scope-dot {
+  position: absolute;
+  width: 30px;
+  height: 30px;
+  min-height: 0;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  box-shadow: none;
+  cursor: pointer;
+  transform: translate(-50%, -50%);
+  display: block;
+  line-height: 0;
+  overflow: visible;
+}
+
+.compass-scope .scope-dot:hover,
+.compass-scope .scope-dot:focus,
+.compass-scope .scope-dot:active {
+  transform: translate(-50%, -50%);
+  box-shadow: none;
+}
+
+.compass-scope .scope-dot span {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  display: block;
+  width: 13px;
+  height: 13px;
+  margin: 0;
+  border-radius: 50%;
+  background: #8effb5;
+  box-shadow: 0 0 18px rgba(142, 255, 181, 0.9);
+  transform: translate(-50%, -50%) scale(1);
+  transform-origin: center center;
+  pointer-events: none;
+}
+
+.compass-scope .scope-dot.selected span {
+  width: 13px;
+  height: 13px;
+  margin: 0;
+  background: #ffd36a;
+  box-shadow: 0 0 26px rgba(255, 211, 106, 1);
+  transform: translate(-50%, -50%) scale(1.45);
+}
+
+.compass-scope .scope-dot.aligned::after {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 34px;
+  height: 34px;
+  inset: auto;
+  border: 2px solid #8effb5;
+  border-radius: 50%;
+  content: "";
+  pointer-events: none;
+  transform: translate(-50%, -50%) scale(1);
+  animation: scopePulseCentered 0.9s ease-in-out infinite alternate;
+}
+
+@keyframes scopePulseCentered {
+  from {
+    opacity: 0.45;
+    transform: translate(-50%, -50%) scale(0.92);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1.08);
+  }
+}
+
+
+/* Radar categories + fullscreen mode patch
+   Append after existing styles.css so it wins the cascade. */
+
+body.radar-fullscreen-open {
+  overflow: hidden;
+}
+
+.scope-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin: 0.6rem 0 0.2rem;
+}
+
+.scope-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 999px;
+  padding: 0.25rem 0.55rem;
+  background: rgba(15, 23, 42, 0.06);
+  color: #334155;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.scope-legend-dot,
+.place-type-chip-inline {
+  display: inline-block;
+  width: 0.72rem;
+  height: 0.72rem;
+  border-radius: 50%;
+  background: var(--place-color, #94a3b8);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--place-color, #94a3b8) 55%, transparent);
+}
+
+.place-type-chip-inline {
+  margin-right: 0.45rem;
+  vertical-align: -0.05rem;
+}
+
+/* Stable radar dot geometry. Selection changes color/scale only, not position. */
+.compass-scope .scope-dot {
+  position: absolute;
+  width: 30px;
+  height: 30px;
+  min-height: 0;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  box-shadow: none;
+  cursor: pointer;
+  transform: translate(-50%, -50%);
+  display: block;
+  line-height: 0;
+  overflow: visible;
+}
+
+.compass-scope .scope-dot:hover,
+.compass-scope .scope-dot:focus,
+.compass-scope .scope-dot:active {
+  transform: translate(-50%, -50%);
+  box-shadow: none;
+}
+
+.compass-scope .scope-dot span {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  display: block;
+  width: 13px;
+  height: 13px;
+  margin: 0;
+  border-radius: 50%;
+  background: var(--place-color, #8effb5);
+  box-shadow: 0 0 18px color-mix(in srgb, var(--place-color, #8effb5) 80%, transparent);
+  transform: translate(-50%, -50%) scale(1);
+  transform-origin: center center;
+  pointer-events: none;
+}
+
+.compass-scope .scope-dot span::after {
+  position: absolute;
+  inset: -0.22rem;
+  display: grid;
+  place-items: center;
+  color: #020617;
+  font-size: 0.62rem;
+  font-weight: 950;
+  line-height: 1;
+  content: var(--place-symbol, "•");
+}
+
+.compass-scope .scope-dot.selected span {
+  width: 13px;
+  height: 13px;
+  margin: 0;
+  background: #ffd36a;
+  box-shadow: 0 0 26px rgba(255, 211, 106, 1);
+  transform: translate(-50%, -50%) scale(1.55);
+}
+
+.compass-scope .scope-dot.aligned::after {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 34px;
+  height: 34px;
+  inset: auto;
+  border: 2px solid #8effb5;
+  border-radius: 50%;
+  content: "";
+  pointer-events: none;
+  transform: translate(-50%, -50%) scale(1);
+  animation: scopePulseCentered 0.9s ease-in-out infinite alternate;
+}
+
+@keyframes scopePulseCentered {
+  from {
+    opacity: 0.45;
+    transform: translate(-50%, -50%) scale(0.92);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1.08);
+  }
+}
+
+.comfort-row > span {
+  background: color-mix(in srgb, var(--place-color, #94a3b8) 18%, #ffffff);
+  color: #172033;
+}
+
+.selected-place-card .direction-pill,
+.radar-fullscreen-card .direction-pill {
+  background: var(--place-color, #172033);
+  color: #020617;
+}
+
+/* Fullscreen radar overlay. */
+.radar-fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  gap: 0.75rem;
+  padding: max(0.75rem, env(safe-area-inset-top)) max(0.75rem, env(safe-area-inset-right)) max(0.75rem, env(safe-area-inset-bottom)) max(0.75rem, env(safe-area-inset-left));
+  background:
+    radial-gradient(circle at 50% 16%, rgba(56, 189, 248, 0.18), transparent 38%),
+    #020617;
+  color: #f8fafc;
+}
+
+.radar-fullscreen-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.radar-fullscreen-topbar h2,
+.radar-fullscreen-topbar p {
+  margin: 0;
+  color: #f8fafc;
+}
+
+.radar-fullscreen-topbar button {
+  min-width: 76px;
+  background: rgba(255, 255, 255, 0.12);
+  color: #f8fafc;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+}
+
+.radar-fullscreen .compass-scope {
+  width: min(92vw, 92svh);
+  height: min(92vw, 64svh);
+  max-width: 760px;
+  max-height: 760px;
+  min-height: 0;
+  align-self: center;
+  justify-self: center;
+  background:
+    radial-gradient(circle, rgba(102, 230, 255, 0.18) 1px, transparent 2px),
+    radial-gradient(circle at 50% 50%, rgba(56, 189, 248, 0.18), rgba(4, 10, 20, 0.98) 68%);
+  background-size: 28px 28px, 100% 100%;
+}
+
+.radar-fullscreen .scope-legend {
+  justify-content: center;
+  margin: 0;
+}
+
+.radar-fullscreen .scope-legend-item {
+  color: #e2e8f0;
+  background: rgba(15, 23, 42, 0.82);
+  border-color: rgba(148, 163, 184, 0.32);
+}
+
+.radar-fullscreen-card {
+  display: grid;
+  gap: 0.35rem;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 20px;
+  padding: 0.85rem;
+  background: rgba(15, 23, 42, 0.88);
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.35);
+}
+
+.radar-fullscreen-card h2,
+.radar-fullscreen-card p {
+  margin: 0;
+  color: #f8fafc;
+}
+
+.radar-fullscreen-card p {
+  color: #cbd5e1;
+}
+
+.radar-fullscreen-card .direction-pill {
+  width: fit-content;
+}
+
+.radar-fullscreen-card .directions-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 46px;
+  margin-top: 0.35rem;
+  border-radius: 999px;
+  background: #38bdf8;
+  color: #04111f;
+  font-weight: 950;
+  text-decoration: none;
+}
+
+/* Keep selected card readable after the mobile patch. */
+.selected-place-card {
+  background: #172033;
+  border-color: #172033;
+  color: #ffffff;
+}
+
+.selected-place-card h2,
+.selected-place-card h3,
+.selected-place-card strong,
+.selected-place-card span {
+  color: #ffffff;
+}
+
+.selected-place-card p {
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.selected-place-card .directions-link {
+  background: #ffffff;
+  color: #172033;
+}
+
+@media (max-width: 640px) {
+  .radar-fullscreen {
+    grid-template-rows: auto minmax(0, 1fr) auto auto;
+    gap: 0.55rem;
+  }
+
+  .radar-fullscreen .compass-scope {
+    width: min(94vw, 68svh);
+    height: min(94vw, 56svh);
+  }
+
+  .radar-fullscreen-card {
+    border-radius: 18px;
+    padding: 0.75rem;
+  }
+
+  .radar-fullscreen-card h2 {
+    font-size: 1.05rem;
+  }
+
+  .radar-fullscreen-card p {
+    font-size: 0.9rem;
+  }
+}
+
+
+/* True fullscreen hardening.
+   The overlay is still a fixed fallback, but when the browser accepts
+   requestFullscreen(), these rules make the app occupy the real display. */
+
+:fullscreen {
+  background: #020617;
+}
+
+:-webkit-full-screen {
+  background: #020617;
+}
+
+.radar-fullscreen,
+:fullscreen .radar-fullscreen,
+:-webkit-full-screen .radar-fullscreen {
+  width: 100vw;
+  height: 100vh;
+  min-height: 100dvh;
+}
+
+@supports (height: 100dvh) {
+  .radar-fullscreen {
+    height: 100dvh;
+  }
+}
+
+.radar-fullscreen button,
+.radar-fullscreen a {
+  touch-action: manipulation;
+}
+
+
+/* Hide clipped text inside radar scope.
+   The selected place details remain visible in the card below the radar,
+   including in fullscreen mode with the walking directions button. */
+
+.compass-scope .scope-target-readout,
+.radar-fullscreen .scope-target-readout {
+  display: none !important;
+}
