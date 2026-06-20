@@ -4,6 +4,7 @@ import { directionsUrl } from '../utils/comfort.js';
 import { formatMeters } from '../utils/geo.js';
 
 const EARTH_RADIUS_METERS = 6371000;
+const HEADING_EPSILON_DEGREES = 1.5;
 
 function normalizeDegrees(value) {
   return ((value % 360) + 360) % 360;
@@ -41,7 +42,7 @@ function bearingDegrees(from, to) {
 }
 
 function extractDeviceHeading(event) {
-  // iOS Safari exposes a real compass heading here.
+  // iOS Safari exposes the closest thing to a real compass heading here.
   if (typeof event.webkitCompassHeading === 'number') {
     return {
       heading: normalizeDegrees(event.webkitCompassHeading),
@@ -52,8 +53,7 @@ function extractDeviceHeading(event) {
     };
   }
 
-  // Standards path. This is useful only when absolute === true.
-  // On many Android browsers alpha is relative to an arbitrary start orientation.
+  // Standard API path. On Android Chrome, alpha is often relative, not true north.
   if (typeof event.alpha === 'number') {
     return {
       heading: normalizeDegrees(360 - event.alpha),
@@ -81,8 +81,10 @@ function useHeading(origin) {
   const [offset, setOffset] = useState(0);
   const [source, setSource] = useState('manual');
   const [status, setStatus] = useState('Heading is manual. Start compass, use movement heading, or calibrate.');
-  const [isListening, setIsListening] = useState(false);
   const lastOriginRef = useRef(origin);
+  const lastRawHeadingRef = useRef(0);
+  const cleanupOrientationRef = useRef(null);
+  const frameRef = useRef(null);
 
   const heading = normalizeDegrees(rawHeading + offset);
 
@@ -90,10 +92,11 @@ function useHeading(origin) {
     const previous = lastOriginRef.current;
     const movedMeters = distanceMetersLocal(previous, origin);
 
-    // GPS course fallback: if the scan centre changes while walking, use movement direction.
-    // It is intentionally conservative so GPS jitter does not spin the radar.
+    // GPS course fallback. Conservative threshold avoids jitter-driven spinning.
     if (movedMeters >= 8 && source !== 'compass' && source !== 'relative') {
-      setRawHeading(bearingDegrees(previous, origin));
+      const nextHeading = bearingDegrees(previous, origin);
+      setRawHeading(nextHeading);
+      lastRawHeadingRef.current = nextHeading;
       setOffset(0);
       setSource('course');
       setStatus('Using movement heading from GPS/course. Keep walking for better direction.');
@@ -101,6 +104,35 @@ function useHeading(origin) {
 
     lastOriginRef.current = origin;
   }, [origin, source]);
+
+  useEffect(() => {
+    return () => {
+      if (cleanupOrientationRef.current) cleanupOrientationRef.current();
+      if (frameRef.current) cancelAnimationFrame(frameRef.current);
+    };
+  }, []);
+
+  function commitHeading(nextHeading, nextSource, accuracy) {
+    const normalized = normalizeDegrees(nextHeading);
+    const delta = Math.abs(signedAngleDelta(lastRawHeadingRef.current, normalized));
+
+    // Avoid re-render storms from noisy sensor events on mobile.
+    if (delta < HEADING_EPSILON_DEGREES && nextSource === source) return;
+
+    lastRawHeadingRef.current = normalized;
+    setRawHeading(normalized);
+    setSource(nextSource);
+
+    if (nextSource === 'compass') {
+      setStatus(
+        accuracy
+          ? `Compass active. Reported accuracy: ±${Math.round(accuracy)}°.`
+          : 'Compass active.'
+      );
+    } else {
+      setStatus('Relative orientation active. On Android this may not be true north — point at a selected place and tap Calibrate.');
+    }
+  }
 
   async function startCompass() {
     if (typeof window === 'undefined' || typeof DeviceOrientationEvent === 'undefined') {
@@ -110,8 +142,6 @@ function useHeading(origin) {
     }
 
     try {
-      // Important: on newer browsers, absolute=true requests magnetometer access.
-      // It must be called from a user gesture, e.g. this button click.
       if (typeof DeviceOrientationEvent.requestPermission === 'function') {
         let permission = 'denied';
 
@@ -128,31 +158,26 @@ function useHeading(origin) {
         }
       }
 
+      if (cleanupOrientationRef.current) cleanupOrientationRef.current();
+
       const onOrientation = (event) => {
         const result = extractDeviceHeading(event);
         if (!result) return;
 
-        setRawHeading(result.heading);
-        setSource(result.source);
-        setIsListening(true);
-
-        if (result.source === 'compass') {
-          setStatus(
-            result.accuracy
-              ? `Compass active. Reported accuracy: ±${Math.round(result.accuracy)}°.`
-              : 'Compass active.'
-          );
-        } else {
-          setStatus(
-            'Relative orientation active. On Android this may not be true north — point at a selected place and tap Calibrate.'
-          );
-        }
+        if (frameRef.current) cancelAnimationFrame(frameRef.current);
+        frameRef.current = requestAnimationFrame(() => {
+          commitHeading(result.heading, result.source, result.accuracy);
+        });
       };
 
       window.addEventListener('deviceorientationabsolute', onOrientation, true);
       window.addEventListener('deviceorientation', onOrientation, true);
 
-      setIsListening(true);
+      cleanupOrientationRef.current = () => {
+        window.removeEventListener('deviceorientationabsolute', onOrientation, true);
+        window.removeEventListener('deviceorientation', onOrientation, true);
+      };
+
       setStatus('Listening for orientation events. Rotate the phone in a figure-eight if the value is frozen.');
     } catch (error) {
       setStatus(`Compass failed: ${error.message}`);
@@ -161,13 +186,17 @@ function useHeading(origin) {
   }
 
   function rotateManual(deltaDegrees) {
-    setRawHeading((current) => normalizeDegrees(current + deltaDegrees));
+    const next = normalizeDegrees(rawHeading + deltaDegrees);
+    setRawHeading(next);
+    lastRawHeadingRef.current = next;
     setSource('manual');
     setStatus('Manual heading override active.');
   }
 
   function setManualHeading(nextHeading) {
-    setRawHeading(normalizeDegrees(nextHeading));
+    const next = normalizeDegrees(nextHeading);
+    setRawHeading(next);
+    lastRawHeadingRef.current = next;
     setSource('manual');
     setStatus('Manual heading override active.');
   }
@@ -180,8 +209,7 @@ function useHeading(origin) {
   function calibrateToBearing(targetBearing) {
     if (!Number.isFinite(targetBearing)) return;
 
-    // User physically points the top of the phone at the selected target.
-    // Whatever the browser currently reports should become that target bearing.
+    // User points the top of the phone at the selected target.
     setOffset(normalizeDegrees(targetBearing - rawHeading));
     setStatus('Calibrated: current phone direction now points at the selected place.');
   }
@@ -191,7 +219,6 @@ function useHeading(origin) {
     rawHeading,
     source,
     status,
-    isListening,
     startCompass,
     rotateManual,
     setManualHeading,
@@ -225,10 +252,12 @@ function CompassScope({ origin, places, selectedPlaceId, onSelectPlace, heading,
         return (
           <button
             key={place.id}
+            type="button"
             className={`scope-dot ${isSelected ? 'selected' : ''} ${isAligned ? 'aligned' : ''}`}
             style={{ left: `${x}%`, top: `${y}%` }}
             title={`${place.name} · ${Math.round(relativeBearing)}° relative`}
             onClick={() => onSelectPlace(place.id)}
+            aria-label={`Select ${place.name}`}
           >
             <span />
           </button>
@@ -236,7 +265,7 @@ function CompassScope({ origin, places, selectedPlaceId, onSelectPlace, heading,
       })}
 
       {selectedPlace && (
-        <div className="scope-target-readout">
+        <div className="scope-target-readout" aria-live="polite">
           <strong>{selectedPlace.name}</strong>
           <span>
             bearing {Math.round(bearingDegrees(origin, selectedPlace))}° ·{' '}
@@ -290,11 +319,11 @@ export default function StationaryPanel({
         </p>
       </div>
 
-      <div className="stationary-actions">
-        <button className="primary" onClick={onUseMyLocation} disabled={isScanning}>
+      <div className="mobile-primary-actions">
+        <button type="button" className="primary" onClick={onUseMyLocation} disabled={isScanning}>
           Use my location + scan
         </button>
-        <button onClick={onUseDemoLocation} disabled={isScanning}>
+        <button type="button" onClick={onUseDemoLocation} disabled={isScanning}>
           Demo location
         </button>
       </div>
@@ -309,7 +338,7 @@ export default function StationaryPanel({
         </select>
       </label>
 
-      <button className="full-button" onClick={onScan} disabled={isScanning}>
+      <button type="button" className="full-button primary" onClick={onScan} disabled={isScanning}>
         {isScanning ? 'Scanning…' : 'Scan nearby again'}
       </button>
 
@@ -318,7 +347,7 @@ export default function StationaryPanel({
         <span>{origin.lat.toFixed(5)}, {origin.lng.toFixed(5)}</span>
       </div>
 
-      {status && <p className="info-text">{status}</p>}
+      {status && <p className="info-text" aria-live="polite">{status}</p>}
 
       <div className="compass-panel">
         <div className="compass-header">
@@ -339,9 +368,10 @@ export default function StationaryPanel({
         />
 
         <div className="compass-actions">
-          <button onClick={startCompass}>Start compass</button>
-          <button onClick={useMovementHeading}>Use movement heading</button>
+          <button type="button" onClick={startCompass}>Start compass</button>
+          <button type="button" onClick={useMovementHeading}>Use movement heading</button>
           <button
+            type="button"
             onClick={() => calibrateToBearing(selectedBearing)}
             disabled={!selectedPlace}
           >
@@ -350,7 +380,7 @@ export default function StationaryPanel({
         </div>
 
         <div className="manual-heading-row">
-          <button onClick={() => rotateManual(-15)}>← 15°</button>
+          <button type="button" onClick={() => rotateManual(-15)}>← 15°</button>
           <input
             type="range"
             min="0"
@@ -359,10 +389,10 @@ export default function StationaryPanel({
             onChange={(event) => setManualHeading(Number(event.target.value))}
             aria-label="Manual heading"
           />
-          <button onClick={() => rotateManual(15)}>15° →</button>
+          <button type="button" onClick={() => rotateManual(15)}>15° →</button>
         </div>
 
-        <p className="info-text">
+        <p className="info-text" aria-live="polite">
           {headingStatus}
         </p>
       </div>
@@ -398,6 +428,7 @@ export default function StationaryPanel({
         ) : (
           places.map((place) => (
             <button
+              type="button"
               className={`comfort-row ${place.id === selectedPlaceId ? 'active' : ''}`}
               key={place.id}
               onClick={() => onSelectPlace(place.id)}
