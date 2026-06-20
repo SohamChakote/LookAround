@@ -1,13 +1,251 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
+
 import { directionsUrl } from '../utils/comfort.js';
 import { formatMeters } from '../utils/geo.js';
 
+const EARTH_RADIUS_METERS = 6371000;
+
+function normalizeDegrees(value) {
+  return ((value % 360) + 360) % 360;
+}
+
+function signedAngleDelta(fromDegrees, toDegrees) {
+  const delta = normalizeDegrees(toDegrees - fromDegrees + 180) - 180;
+  return delta === -180 ? 180 : delta;
+}
+
+function distanceMetersLocal(a, b) {
+  const lat1 = a.lat * Math.PI / 180;
+  const lat2 = b.lat * Math.PI / 180;
+  const dLat = (b.lat - a.lat) * Math.PI / 180;
+  const dLng = (b.lng - a.lng) * Math.PI / 180;
+
+  const h =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
+
+  return 2 * EARTH_RADIUS_METERS * Math.asin(Math.sqrt(h));
+}
+
+function bearingDegrees(from, to) {
+  const lat1 = from.lat * Math.PI / 180;
+  const lat2 = to.lat * Math.PI / 180;
+  const dLng = (to.lng - from.lng) * Math.PI / 180;
+
+  const y = Math.sin(dLng) * Math.cos(lat2);
+  const x =
+    Math.cos(lat1) * Math.sin(lat2) -
+    Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng);
+
+  return normalizeDegrees(Math.atan2(y, x) * 180 / Math.PI);
+}
+
+function extractDeviceHeading(event) {
+  // iOS Safari exposes a real compass heading here.
+  if (typeof event.webkitCompassHeading === 'number') {
+    return {
+      heading: normalizeDegrees(event.webkitCompassHeading),
+      source: 'compass',
+      accuracy: typeof event.webkitCompassAccuracy === 'number'
+        ? event.webkitCompassAccuracy
+        : null
+    };
+  }
+
+  // Standards path. This is useful only when absolute === true.
+  // On many Android browsers alpha is relative to an arbitrary start orientation.
+  if (typeof event.alpha === 'number') {
+    return {
+      heading: normalizeDegrees(360 - event.alpha),
+      source: event.absolute ? 'compass' : 'relative',
+      accuracy: null
+    };
+  }
+
+  return null;
+}
+
 function detailLine(place) {
   const parts = [];
+
   if (place.access) parts.push(`access: ${place.access}`);
   if (place.fee) parts.push(`fee: ${place.fee}`);
   if (place.wheelchair) parts.push(`wheelchair: ${place.wheelchair}`);
   if (place.openingHours) parts.push(place.openingHours);
+
   return parts.join(' · ');
+}
+
+function useHeading(origin) {
+  const [rawHeading, setRawHeading] = useState(0);
+  const [offset, setOffset] = useState(0);
+  const [source, setSource] = useState('manual');
+  const [status, setStatus] = useState('Heading is manual. Start compass, use movement heading, or calibrate.');
+  const [isListening, setIsListening] = useState(false);
+  const lastOriginRef = useRef(origin);
+
+  const heading = normalizeDegrees(rawHeading + offset);
+
+  useEffect(() => {
+    const previous = lastOriginRef.current;
+    const movedMeters = distanceMetersLocal(previous, origin);
+
+    // GPS course fallback: if the scan centre changes while walking, use movement direction.
+    // It is intentionally conservative so GPS jitter does not spin the radar.
+    if (movedMeters >= 8 && source !== 'compass' && source !== 'relative') {
+      setRawHeading(bearingDegrees(previous, origin));
+      setOffset(0);
+      setSource('course');
+      setStatus('Using movement heading from GPS/course. Keep walking for better direction.');
+    }
+
+    lastOriginRef.current = origin;
+  }, [origin, source]);
+
+  async function startCompass() {
+    if (typeof window === 'undefined' || typeof DeviceOrientationEvent === 'undefined') {
+      setStatus('Device orientation is not available in this browser.');
+      setSource('manual');
+      return;
+    }
+
+    try {
+      // Important: on newer browsers, absolute=true requests magnetometer access.
+      // It must be called from a user gesture, e.g. this button click.
+      if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+        let permission = 'denied';
+
+        try {
+          permission = await DeviceOrientationEvent.requestPermission(true);
+        } catch {
+          permission = await DeviceOrientationEvent.requestPermission();
+        }
+
+        if (permission !== 'granted') {
+          setStatus('Compass permission was not granted. Manual heading still works.');
+          setSource('manual');
+          return;
+        }
+      }
+
+      const onOrientation = (event) => {
+        const result = extractDeviceHeading(event);
+        if (!result) return;
+
+        setRawHeading(result.heading);
+        setSource(result.source);
+        setIsListening(true);
+
+        if (result.source === 'compass') {
+          setStatus(
+            result.accuracy
+              ? `Compass active. Reported accuracy: ±${Math.round(result.accuracy)}°.`
+              : 'Compass active.'
+          );
+        } else {
+          setStatus(
+            'Relative orientation active. On Android this may not be true north — point at a selected place and tap Calibrate.'
+          );
+        }
+      };
+
+      window.addEventListener('deviceorientationabsolute', onOrientation, true);
+      window.addEventListener('deviceorientation', onOrientation, true);
+
+      setIsListening(true);
+      setStatus('Listening for orientation events. Rotate the phone in a figure-eight if the value is frozen.');
+    } catch (error) {
+      setStatus(`Compass failed: ${error.message}`);
+      setSource('manual');
+    }
+  }
+
+  function rotateManual(deltaDegrees) {
+    setRawHeading((current) => normalizeDegrees(current + deltaDegrees));
+    setSource('manual');
+    setStatus('Manual heading override active.');
+  }
+
+  function setManualHeading(nextHeading) {
+    setRawHeading(normalizeDegrees(nextHeading));
+    setSource('manual');
+    setStatus('Manual heading override active.');
+  }
+
+  function useMovementHeading() {
+    setSource('course');
+    setStatus('Movement heading enabled. Move several metres with GPS on so heading can update.');
+  }
+
+  function calibrateToBearing(targetBearing) {
+    if (!Number.isFinite(targetBearing)) return;
+
+    // User physically points the top of the phone at the selected target.
+    // Whatever the browser currently reports should become that target bearing.
+    setOffset(normalizeDegrees(targetBearing - rawHeading));
+    setStatus('Calibrated: current phone direction now points at the selected place.');
+  }
+
+  return {
+    heading,
+    rawHeading,
+    source,
+    status,
+    isListening,
+    startCompass,
+    rotateManual,
+    setManualHeading,
+    useMovementHeading,
+    calibrateToBearing
+  };
+}
+
+function CompassScope({ origin, places, selectedPlaceId, onSelectPlace, heading, radiusMeters }) {
+  const visiblePlaces = places.slice(0, 18);
+  const selectedPlace = places.find((place) => place.id === selectedPlaceId) ?? places[0];
+
+  return (
+    <div className="compass-scope" aria-label="Compass radar scope">
+      <div className="scope-grid" />
+      <div className="scope-forward">▲</div>
+      <div className="scope-heading">{Math.round(heading)}°</div>
+
+      {visiblePlaces.map((place) => {
+        const placeBearing = bearingDegrees(origin, place);
+        const relativeBearing = signedAngleDelta(heading, placeBearing);
+        const clampedDistance = Math.min(distanceMetersLocal(origin, place), radiusMeters);
+        const distanceRatio = Math.max(0.12, clampedDistance / radiusMeters);
+        const angleRadians = relativeBearing * Math.PI / 180;
+
+        const x = 50 + Math.sin(angleRadians) * distanceRatio * 43;
+        const y = 50 - Math.cos(angleRadians) * distanceRatio * 43;
+        const isSelected = selectedPlace?.id === place.id;
+        const isAligned = isSelected && Math.abs(relativeBearing) <= 10;
+
+        return (
+          <button
+            key={place.id}
+            className={`scope-dot ${isSelected ? 'selected' : ''} ${isAligned ? 'aligned' : ''}`}
+            style={{ left: `${x}%`, top: `${y}%` }}
+            title={`${place.name} · ${Math.round(relativeBearing)}° relative`}
+            onClick={() => onSelectPlace(place.id)}
+          >
+            <span />
+          </button>
+        );
+      })}
+
+      {selectedPlace && (
+        <div className="scope-target-readout">
+          <strong>{selectedPlace.name}</strong>
+          <span>
+            bearing {Math.round(bearingDegrees(origin, selectedPlace))}° ·{' '}
+            {Math.round(signedAngleDelta(heading, bearingDegrees(origin, selectedPlace)))}° off
+          </span>
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function StationaryPanel({
@@ -25,13 +263,30 @@ export default function StationaryPanel({
 }) {
   const selectedPlace = places.find((place) => place.id === selectedPlaceId) ?? places[0];
 
+  const {
+    heading,
+    rawHeading,
+    source,
+    status: headingStatus,
+    startCompass,
+    rotateManual,
+    setManualHeading,
+    useMovementHeading,
+    calibrateToBearing
+  } = useHeading(origin);
+
+  const selectedBearing = useMemo(() => {
+    if (!selectedPlace) return null;
+    return bearingDegrees(origin, selectedPlace);
+  }, [origin, selectedPlace]);
+
   return (
     <section className="panel stationary-panel">
       <div className="panel-heading">
         <p className="eyebrow">Stationary helper</p>
-        <h1>Nearby Comfort Stops</h1>
+        <h1>Nearby City Radar</h1>
         <p className="subtitle">
-          Find nearby public washrooms, water stops, transit stops, and quick comfort places around your current location.
+          Find nearby public washrooms, water stops, transit stops, cafés, parks, landmarks, and culture around your current location.
         </p>
       </div>
 
@@ -65,6 +320,53 @@ export default function StationaryPanel({
 
       {status && <p className="info-text">{status}</p>}
 
+      <div className="compass-panel">
+        <div className="compass-header">
+          <div>
+            <p className="eyebrow">City scope</p>
+            <h2>Point your phone toward a signal</h2>
+          </div>
+          <div className="direction-pill">{source} · {Math.round(heading)}°</div>
+        </div>
+
+        <CompassScope
+          origin={origin}
+          places={places}
+          selectedPlaceId={selectedPlaceId}
+          onSelectPlace={onSelectPlace}
+          heading={heading}
+          radiusMeters={radiusMeters}
+        />
+
+        <div className="compass-actions">
+          <button onClick={startCompass}>Start compass</button>
+          <button onClick={useMovementHeading}>Use movement heading</button>
+          <button
+            onClick={() => calibrateToBearing(selectedBearing)}
+            disabled={!selectedPlace}
+          >
+            Calibrate to selected
+          </button>
+        </div>
+
+        <div className="manual-heading-row">
+          <button onClick={() => rotateManual(-15)}>← 15°</button>
+          <input
+            type="range"
+            min="0"
+            max="359"
+            value={Math.round(rawHeading)}
+            onChange={(event) => setManualHeading(Number(event.target.value))}
+            aria-label="Manual heading"
+          />
+          <button onClick={() => rotateManual(15)}>15° →</button>
+        </div>
+
+        <p className="info-text">
+          {headingStatus}
+        </p>
+      </div>
+
       {selectedPlace && (
         <div className="selected-place-card">
           <div className="direction-pill">Selected</div>
@@ -72,6 +374,12 @@ export default function StationaryPanel({
           <p>
             {selectedPlace.category} · {formatMeters(selectedPlace.distanceMeters)} away · {selectedPlace.source}
           </p>
+          {Number.isFinite(selectedBearing) && (
+            <p>
+              Bearing {Math.round(selectedBearing)}° · point offset{' '}
+              {Math.round(signedAngleDelta(heading, selectedBearing))}°
+            </p>
+          )}
           <a
             className="directions-link"
             href={directionsUrl(origin, selectedPlace)}
