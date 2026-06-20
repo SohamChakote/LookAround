@@ -81,16 +81,6 @@ export const scenicLandmarks = [
       "The University Golf Club is nearby, a large green space along the west side of the city.",
   },
   {
-    id: "jericho-beach",
-    routeId: "route-14-ubc-kootenay",
-    name: "Jericho Beach Area",
-    lat: 49.272,
-    lng: -123.2038,
-    triggerRadiusMeters: 1200,
-    message:
-      "Jericho Beach is toward the water from here, with open views across English Bay.",
-  },
-  {
     id: "kitsilano",
     routeId: "route-14-ubc-kootenay",
     name: "Kitsilano Neighbourhood",
@@ -129,16 +119,6 @@ export const scenicLandmarks = [
     triggerRadiusMeters: 600,
     message:
       "The Vancouver Art Gallery is nearby, one of the city’s major cultural landmarks.",
-  },
-  {
-    id: "robson-square",
-    routeId: "route-14-ubc-kootenay",
-    name: "Robson Square",
-    lat: 49.2827,
-    lng: -123.121,
-    triggerRadiusMeters: 600,
-    message:
-      "Robson Square is nearby, a downtown public space beside the Vancouver Art Gallery.",
   },
   {
     id: "pacific-centre",
