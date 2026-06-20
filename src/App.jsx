@@ -4,7 +4,8 @@ import RoutePanel from './components/RoutePanel.jsx';
 import AnnouncementCard from './components/AnnouncementCard.jsx';
 import ModeSwitcher from './components/ModeSwitcher.jsx';
 import StationaryPanel from './components/StationaryPanel.jsx';
-import { landmarks, routes } from './data/routes.js';
+import { routes } from './data/routes.js';
+import { scenicLandmarks } from './data/scenicLandmarks.js';
 import { getDemoComfortPlaces } from './data/comfortPlaces.js';
 import { fetchComfortPlaces } from './utils/comfort.js';
 import {
@@ -55,7 +56,7 @@ export default function App() {
   );
 
   const routeLandmarks = useMemo(
-    () => landmarks.filter((landmark) => landmark.routeId === selectedRoute.id),
+    () => scenicLandmarks.filter((landmark) => landmark.routeId === selectedRoute.id),
     [selectedRoute.id]
   );
 
