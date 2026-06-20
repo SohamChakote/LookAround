@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Vancouver City Radar — PoC v2</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+:root{--bg:#050810;--card:#101828e8;--ink:#eef7ff;--muted:#9aa8bf;--a:#66e6ff;--b:#8effb5;--w:#ffd36a;--bad:#ff7a7a}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 50% 0,#16213a,#050810 65%);color:var(--ink);font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;overflow-x:hidden}
+#roadsbg{position:fixed;inset:0;width:100%;height:100%;z-index:-1;opacity:.38}.wrap{max-width:1180px;margin:auto;padding:14px}
+.hero{display:grid;grid-template-columns:1.05fr .95fr;gap:14px}.grid{display:grid;grid-template-columns:.95fr 1.05fr;gap:14px;margin-top:14px}
+.card{background:var(--card);border:1px solid #263550;border-radius:18px;padding:14px;box-shadow:0 20px 70px #0009;backdrop-filter:blur(8px)}
+h1{font-size:clamp(30px,5vw,54px);line-height:.92;margin:0 0 8px}.tag{color:var(--a);font-weight:900}h2{margin:0 0 9px;font-size:19px}p{color:var(--muted);line-height:1.4}
+.controls{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}button,select,input{width:100%;border-radius:13px;border:1px solid #34445f;background:#0a1020;color:var(--ink);padding:11px;font-size:15px}
+button{background:linear-gradient(135deg,#1d92ff,#66e6ff);color:#06111d;font-weight:900;border:0}.ghost{background:#0a1020;color:var(--ink);border:1px solid #34445f}
+.stat{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px}.pill{background:#0b1223;border:1px solid #2b3858;border-radius:13px;padding:9px}.big{font-weight:950;font-size:22px}.small{font-size:12px;color:var(--muted)}
+#map{height:450px;border-radius:16px;background:#08101e;border:1px solid #263550}#scope{width:100%;height:450px;border-radius:16px;background:#020711;border:1px solid #263550;touch-action:none}
+.list{max-height:450px;overflow:auto;display:flex;flex-direction:column;gap:8px}.item{border-left:3px solid var(--a);background:#0b1223;border-radius:12px;padding:10px}.item b{display:block}.meta{font-size:12px;color:var(--muted)}.good{color:var(--b)}.warn{color:var(--w)}.bad{color:var(--bad)}
+code{background:#071020;border:1px solid #263550;border-radius:7px;padding:2px 6px;color:#dcecff}.footer{font-size:12px;color:#7e8ba3;margin:12px 3px 0}
+@media(max-width:880px){.hero,.grid{grid-template-columns:1fr}.controls,.stat{grid-template-columns:1fr}#map,#scope{height:360px}}
+</style>
+</head>
+<body>
+<canvas id="roadsbg"></canvas>
+<div class="wrap">
+<section class="hero">
+<div class="card">
+<div class="tag">Put Vancouver on the map — literally</div>
+<h1>Vancouver City Radar</h1>
+<p>A live urban scope: GPS finds nearby OpenStreetMap places, then the radar points toward them. If browser compass fails, use movement heading or manual heading.</p>
+<div class="controls"><button id="loc">Use GPS + scan</button><button id="scan" class="ghost">Scan nearby again</button></div>
+<div class="controls"><button id="sensors" class="ghost">Try compass</button><button id="course" class="ghost">Use movement heading</button></div>
+<div class="controls"><button id="left" class="ghost">← Rotate heading</button><button id="right" class="ghost">Rotate heading →</button></div>
+<div class="controls">
+<select id="radius"><option value="450">450 m</option><option value="700" selected>700 m</option><option value="1000">1 km</option><option value="1500">1.5 km</option></select>
+<select id="kind"><option value="all">All-ages highlights</option><option value="worldcup">World Cup useful</option><option value="views">Views + culture</option><option value="comfort">Comfort stops</option></select>
+</div>
+<div class="controls"><input id="manual" type="range" min="0" max="359" value="0"><button id="north" class="ghost">Set north-up</button></div>
+<div class="stat"><div class="pill"><div class="big" id="count">0</div><div class="small">places found</div></div><div class="pill"><div class="big" id="heading">0°</div><div class="small">radar heading</div></div><div class="pill"><div class="big" id="target">—</div><div class="small">current target</div></div></div>
+</div>
+<div class="card">
+<h2>Current signal</h2>
+<p id="status">Tap <b>Use GPS + scan</b>. Heading fallback order: browser compass → GPS movement/course → manual slider/buttons.</p>
+<p><b>Important:</b> phone compass in mobile browsers is unreliable. The demo is still valid because the radar can work with movement heading or manual heading.</p>
+<p><b>Pitch:</b> “The theme was putting Vancouver on the map. We made the map into an instrument.”</p>
+</div>
+</section>
+<section class="grid"><div class="card"><h2>City scope</h2><canvas id="scope" width="900" height="600"></canvas></div><div class="card"><h2>Nearby places</h2><div id="list" class="list"></div></div></section>
+<section class="card" style="margin-top:14px"><h2>Map view</h2><div id="map"></div></section>
+<section class="card" style="margin-top:14px"><h2>Process story</h2><p><code>GPS</code> → <code>Overpass/OSM nearby query</code> → <code>rank significant places</code> → <code>city-roads style background</code> → <code>radar pointing UI</code></p></section>
+<div class="footer">Expected Termux URL: http://127.0.0.1:8080/vancouver-city-radar-poc-v2.html · Requires internet for Overpass/Leaflet. GPS/sensors work best from HTTPS or localhost.</div>
+</div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const $=id=>document.getElementById(id);
+let lat=49.2827,lon=-123.1207,acc=999,watch=null,map,userMarker,markers=[],pois=[],roads=[],heading=0,headingSource="manual",selected=0,lastLat=null,lastLon=null;
+const overpassEndpoints=["https://overpass-api.de/api/interpreter","https://overpass.kumi.systems/api/interpreter"];
+initMap();drawScope();drawBg();setHeading(0,"manual");
+
+$("loc").onclick=()=>startGps(true);$("scan").onclick=()=>scan();$("sensors").onclick=startSensors;$("course").onclick=()=>{headingSource="course";say("Movement heading enabled. Start moving; GPS course updates the radar.")};
+$("left").onclick=()=>setHeading(heading-15,"manual");$("right").onclick=()=>setHeading(heading+15,"manual");$("north").onclick=()=>setHeading(0,"manual");
+$("manual").oninput=e=>setHeading(+e.target.value,"manual");$("kind").onchange=()=>renderPois();$("radius").onchange=()=>scan();
+
+function say(s,bad=false){$("status").innerHTML=bad?`<span class="bad">${s}</span>`:s}
+function setHeading(h,src){heading=(h%360+360)%360;headingSource=src;$("heading").textContent=Math.round(heading)+"°";$("manual").value=Math.round(heading);drawScope()}
+function startGps(firstScan){
+ if(!navigator.geolocation){say("Geolocation unsupported.",true);return}
+ say("Requesting GPS permission…");
+ if(watch!==null)navigator.geolocation.clearWatch(watch);
+ watch=navigator.geolocation.watchPosition(p=>{
+  const oldLat=lat,oldLon=lon;
+  lat=p.coords.latitude;lon=p.coords.longitude;acc=p.coords.accuracy||999;
+  if(headingSource==="course"){
+   if(Number.isFinite(p.coords.heading)) setHeading(p.coords.heading,"course");
+   else if(lastLat!==null && dist(lastLat,lastLon,lat,lon)>8) setHeading(bearing(lastLat,lastLon,lat,lon),"course");
+  }
+  lastLat=lat;lastLon=lon;
+  if(userMarker)userMarker.setLatLng([lat,lon]); else userMarker=L.circleMarker([lat,lon],{radius:8}).addTo(map).bindPopup("You");
+  map.setView([lat,lon],15);
+  if(firstScan){firstScan=false;scan()} else updateDistances();
+ },e=>say("GPS error: "+e.message,true),{enableHighAccuracy:true,maximumAge:1000,timeout:9000});
+}
+async function scan(){
+ const r=+$("radius").value;
+ say(`Scanning OSM within ${r} m of ${lat.toFixed(5)}, ${lon.toFixed(5)}…`);
+ const q=`[out:json][timeout:18];
+ (
+  node(around:${r},${lat},${lon})[tourism~"attraction|viewpoint|museum|artwork|gallery"];
+  way(around:${r},${lat},${lon})[tourism~"attraction|viewpoint|museum|artwork|gallery"];
+  relation(around:${r},${lat},${lon})[tourism~"attraction|viewpoint|museum|artwork|gallery"];
+  node(around:${r},${lat},${lon})[historic]; way(around:${r},${lat},${lon})[historic];
+  node(around:${r},${lat},${lon})[leisure~"park|garden|pitch|sports_centre"]; way(around:${r},${lat},${lon})[leisure~"park|garden|pitch|sports_centre"];
+  node(around:${r},${lat},${lon})[amenity~"cafe|restaurant|fast_food|toilets|drinking_water|library|community_centre"]; way(around:${r},${lat},${lon})[amenity~"cafe|restaurant|fast_food|toilets|drinking_water|library|community_centre"];
+  node(around:${r},${lat},${lon})[public_transport~"station|stop_position|platform"];
+  node(around:${r},${lat},${lon})[railway~"station|halt|tram_stop|subway_entrance"];
+  node(around:${r},${lat},${lon})[building~"stadium|public|train_station|transportation"]; way(around:${r},${lat},${lon})[building~"stadium|public|train_station|transportation"];
+  way(around:${Math.min(r,900)},${lat},${lon})[highway];
+ );
+ out center geom tags;`;
+ try{const data=await overpass(q);parseOverpass(data);renderPois();drawBg();say(`Scan complete. ${pois.length} places, ${roads.length} road traces. GPS accuracy ${Math.round(acc)} m. Heading source: ${headingSource}.`)}
+ catch(e){say("Overpass scan failed: "+e.message,true)}
+}
+async function overpass(q){let last;for(const ep of overpassEndpoints){try{const res=await fetch(ep,{method:"POST",body:q,headers:{"Content-Type":"text/plain;charset=UTF-8"}});if(!res.ok)throw new Error(res.status+" "+res.statusText);return await res.json()}catch(e){last=e}}throw last||new Error("No Overpass endpoint responded")}
+function parseOverpass(data){
+ pois=[];roads=[];const seen=new Set();
+ for(const el of data.elements||[]){
+  const t=el.tags||{},la=el.lat||(el.center&&el.center.lat),lo=el.lon||(el.center&&el.center.lon);
+  if(t.highway){if(el.type==="way"&&el.geometry)roads.push(el.geometry.map(g=>[g.lat,g.lon]));continue}
+  if(!la||!lo)continue; const name=t.name||t["name:en"]||humanName(t); if(!name)continue;
+  const key=name+"|"+la.toFixed(5)+"|"+lo.toFixed(5); if(seen.has(key))continue;seen.add(key);
+  const d=dist(lat,lon,la,lo),b=bearing(lat,lon,la,lo),cat=category(t);pois.push({name,lat:la,lon:lo,d,b,cat,t,score:score(t,d)})
+ }
+ pois.sort((a,b)=>b.score-a.score);selected=0;
+}
+function updateDistances(){pois.forEach(p=>{p.d=dist(lat,lon,p.lat,p.lon);p.b=bearing(lat,lon,p.lat,p.lon);p.score=score(p.t,p.d)});pois.sort((a,b)=>b.score-a.score);renderPois()}
+function humanName(t){if(t.tourism==="viewpoint")return"Viewpoint";if(t.tourism==="artwork")return"Public artwork";if(t.historic)return"Historic place";if(t.leisure==="park")return"Park";if(t.amenity==="toilets")return"Public washroom";if(t.amenity==="drinking_water")return"Drinking water";if(t.amenity==="library")return"Library";if(t.public_transport||t.railway)return"Transit stop";if(t.amenity==="cafe")return"Café";if(t.amenity==="restaurant")return"Restaurant";return""}
+function category(t){if(t.tourism||t.historic||t.artwork_type)return"culture";if(t.leisure==="park"||t.leisure==="garden"||t.tourism==="viewpoint")return"views";if(t.amenity==="toilets"||t.amenity==="drinking_water")return"comfort";if(t.public_transport||t.railway)return"transit";if(t.leisure==="pitch"||t.leisure==="sports_centre"||t.building==="stadium")return"worldcup";if(t.amenity)return"food";return"place"}
+function score(t,d){let s=1000-d;if(t.name)s+=250;if(t.tourism==="viewpoint")s+=500;if(t.tourism==="attraction")s+=450;if(t.historic)s+=390;if(t.tourism==="museum"||t.tourism==="gallery")s+=360;if(t.tourism==="artwork")s+=300;if(t.amenity==="drinking_water"||t.amenity==="toilets")s+=260;if(t.building==="stadium"||t.leisure==="sports_centre")s+=330;if(t.public_transport||t.railway)s+=170;return s}
+function filtered(){const k=$("kind").value;if(k==="all")return pois.slice(0,40);if(k==="worldcup")return pois.filter(p=>["worldcup","comfort","transit","food","culture"].includes(p.cat)).slice(0,40);if(k==="views")return pois.filter(p=>["views","culture"].includes(p.cat)).slice(0,40);return pois.filter(p=>["comfort","transit","food"].includes(p.cat)).slice(0,40)}
+function renderPois(){const f=filtered();$("count").textContent=f.length;markers.forEach(m=>m.remove());markers=[];$("list").innerHTML=f.map((p,i)=>`<div class="item" onclick="selectPoi(${i})"><b>${icon(p.cat)} ${p.name}</b><span class="meta">${p.cat} · ${Math.round(p.d)} m · bearing ${Math.round(p.b)}°</span><br>${explain(p)}</div>`).join("")||"<p>No places yet. Tap scan.</p>";f.slice(0,30).forEach((p,i)=>{const m=L.circleMarker([p.lat,p.lon],{radius:i===selected?9:6}).addTo(map).bindPopup(`<b>${p.name}</b><br>${p.cat}<br>${Math.round(p.d)} m`);markers.push(m)});updateTarget();drawScope()}
+window.selectPoi=i=>{selected=i;updateTarget();renderPois()}
+function updateTarget(){const f=filtered(),p=f[selected];if(!p){$("target").textContent="—";drawScope();return}$("target").textContent=p.name.length>16?p.name.slice(0,15)+"…":p.name;drawScope()}
+function explain(p){if(p.cat==="comfort")return"Useful visitor infrastructure.";if(p.cat==="transit")return"Useful for moving through Vancouver.";if(p.cat==="views")return"Good candidate for a visual Vancouver moment.";if(p.cat==="worldcup")return"Potential match-day or fan-flow context.";if(p.cat==="food")return"All-ages food/café option nearby.";return"A nearby story candidate from OpenStreetMap."}
+function icon(c){return{culture:"◆",views:"▲",comfort:"●",transit:"◈",worldcup:"⬢",food:"◉",place:"·"}[c]||"·"}
+function initMap(){map=L.map("map").setView([lat,lon],14);L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"© OpenStreetMap contributors"}).addTo(map);userMarker=L.circleMarker([lat,lon],{radius:8}).addTo(map).bindPopup("You")}
+async function startSensors(){
+ try{
+  if(typeof DeviceOrientationEvent!=="undefined"&&typeof DeviceOrientationEvent.requestPermission==="function"){const res=await DeviceOrientationEvent.requestPermission();if(res!=="granted"){say("Compass permission denied.",true);return}}
+  window.addEventListener("deviceorientationabsolute",orient,true);window.addEventListener("deviceorientation",orient,true);headingSource="compass";say("Trying browser compass. If heading stays frozen, use movement heading or manual buttons.")
+ }catch(e){say("Compass error: "+e.message,true)}
+}
+function orient(e){let h=null;if(e.webkitCompassHeading!=null)h=e.webkitCompassHeading;else if(e.absolute&&e.alpha!=null)h=360-e.alpha;if(h==null||Number.isNaN(h))return;setHeading(h,"compass")}
+function drawScope(){
+ const c=$("scope"),x=c.getContext("2d"),w=c.width,h=c.height,cx=w/2,cy=h/2,R=Math.min(w,h)*.42;x.clearRect(0,0,w,h);x.fillStyle="#020711";x.fillRect(0,0,w,h);
+ x.strokeStyle="#18355a";x.lineWidth=2;for(let r=R/4;r<=R;r+=R/4){x.beginPath();x.arc(cx,cy,r,0,7);x.stroke()}for(let a=0;a<360;a+=30){let q=(a-90)*Math.PI/180;x.beginPath();x.moveTo(cx,cy);x.lineTo(cx+Math.cos(q)*R,cy+Math.sin(q)*R);x.stroke()}
+ x.fillStyle="#66e6ff";x.font="18px system-ui";x.textAlign="center";x.fillText("CITY RADAR",cx,38);x.font="14px system-ui";x.fillStyle="#9aa8bf";x.fillText(`heading ${Math.round(heading)}° · ${headingSource}`,cx,60);
+ const f=filtered().slice(0,18),maxR=+$("radius").value;f.forEach((p,i)=>{let rel=((p.b-heading+540)%360)-180,rr=Math.min(R,p.d/maxR*R),a=(rel-90)*Math.PI/180,px=cx+Math.cos(a)*rr,py=cy+Math.sin(a)*rr;x.fillStyle=i===selected?"#ffd36a":catColor(p.cat);x.beginPath();x.arc(px,py,i===selected?9:6,0,7);x.fill();if(Math.abs(rel)<8&&i===selected){x.strokeStyle="#8effb5";x.lineWidth=4;x.beginPath();x.arc(cx,cy,R*.96,(-98)*Math.PI/180,(-82)*Math.PI/180);x.stroke();x.fillStyle="#8effb5";x.font="22px system-ui";x.fillText("ALIGNED",cx,h-35)}});
+ x.strokeStyle="#66e6ff";x.lineWidth=4;x.beginPath();x.moveTo(cx,cy-R*.98);x.lineTo(cx-12,cy-R*.88);x.lineTo(cx+12,cy-R*.88);x.closePath();x.stroke()
+}
+function catColor(c){return{culture:"#d9a2ff",views:"#8effb5",comfort:"#66e6ff",transit:"#ffd36a",worldcup:"#ff8f66",food:"#fff",place:"#9aa8bf"}[c]||"#9aa8bf"}
+function drawBg(){
+ const c=$("roadsbg"),x=c.getContext("2d");c.width=innerWidth*devicePixelRatio;c.height=innerHeight*devicePixelRatio;x.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);x.clearRect(0,0,innerWidth,innerHeight);x.fillStyle="#050810";x.fillRect(0,0,innerWidth,innerHeight);
+ const all=roads.flat();if(!all.length){x.strokeStyle="#173050";x.lineWidth=1;for(let i=0;i<120;i++){x.beginPath();let y=Math.random()*innerHeight;x.moveTo(0,y);x.bezierCurveTo(innerWidth*.3,Math.random()*innerHeight,innerWidth*.7,Math.random()*innerHeight,innerWidth,y+Math.random()*90-45);x.stroke()}return}
+ const lats=all.map(p=>p[0]),lons=all.map(p=>p[1]),minLa=Math.min(...lats),maxLa=Math.max(...lats),minLo=Math.min(...lons),maxLo=Math.max(...lons);function P(p){return[(p[1]-minLo)/(maxLo-minLo||1)*innerWidth,innerHeight-(p[0]-minLa)/(maxLa-minLa||1)*innerHeight]}
+ x.strokeStyle="#1b6d9a";x.lineWidth=.7;roads.forEach(g=>{x.beginPath();g.forEach((p,i)=>{const q=P(p);i?x.lineTo(q[0],q[1]):x.moveTo(q[0],q[1])});x.stroke()})
+}
+addEventListener("resize",()=>{drawBg();drawScope()});
+function dist(a,b,c,d){const R=6371000,p=Math.PI/180,da=(c-a)*p,do_=(d-b)*p,A=Math.sin(da/2)**2+Math.cos(a*p)*Math.cos(c*p)*Math.sin(do_/2)**2;return 2*R*Math.asin(Math.sqrt(A))}
+function bearing(a,b,c,d){const p=Math.PI/180,y=Math.sin((d-b)*p)*Math.cos(c*p),x=Math.cos(a*p)*Math.sin(c*p)-Math.sin(a*p)*Math.cos(c*p)*Math.cos((d-b)*p);return(Math.atan2(y,x)/p+360)%360}
+renderPois();
+</script>
+</body>
+</html>
