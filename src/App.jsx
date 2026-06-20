@@ -2,8 +2,9 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import TransitMap from './components/TransitMap.jsx';
 import RoutePanel from './components/RoutePanel.jsx';
 import AnnouncementCard from './components/AnnouncementCard.jsx';
-import ModeSwitcher from './components/ModeSwitcher.jsx';
 import StationaryPanel from './components/StationaryPanel.jsx';
+import ArticlesPanel from './components/ArticlesPanel.jsx';
+import ModeSwitcher from './components/ModeSwitcher.jsx';
 import { landmarks, routes } from './data/routes.js';
 import { getDemoComfortPlaces } from './data/comfortPlaces.js';
 import { fetchComfortPlaces } from './utils/comfort.js';
@@ -18,44 +19,54 @@ import {
 
 const DEMO_STATIONARY_POSITION = { lat: 49.2827, lng: -123.1207 };
 
+const TABS = [
+  { id: 'travel',     label: 'Transit',  icon: '🚆' },
+  { id: 'stationary', label: 'Nearby',   icon: '📍' },
+  { id: 'articles',   label: 'Discover', icon: '📖' },
+];
+
 function speak(text) {
   if (!('speechSynthesis' in window)) return;
   window.speechSynthesis.cancel();
-  const utterance = new SpeechSynthesisUtterance(text);
-  utterance.rate = 0.96;
-  utterance.pitch = 1;
-  window.speechSynthesis.speak(utterance);
+  const u = new SpeechSynthesisUtterance(text);
+  u.rate = 0.96;
+  u.pitch = 1;
+  window.speechSynthesis.speak(u);
 }
 
 export default function App() {
-  const [appMode, setAppMode] = useState('travel');
+  const [activeTab, setActiveTab]           = useState('travel');
   const [selectedRouteId, setSelectedRouteId] = useState(routes[0].id);
-  const [mode, setMode] = useState('demo');
-  const [isRunning, setIsRunning] = useState(false);
+  const [mode, setMode]                     = useState('demo');
+  const [isRunning, setIsRunning]           = useState(false);
   const [progressMeters, setProgressMeters] = useState(0);
-  const [demoSpeed, setDemoSpeed] = useState(85);
-  const [voiceEnabled, setVoiceEnabled] = useState(true);
-  const [userPosition, setUserPosition] = useState(asPoint(routes[0].path[0]));
-  const [announcedIds, setAnnouncedIds] = useState(new Set());
-  const [announcement, setAnnouncement] = useState(null);
-  const [gpsError, setGpsError] = useState('');
+  const [demoSpeed, setDemoSpeed]           = useState(85);
+  const [voiceEnabled, setVoiceEnabled]     = useState(true);
+  const [userPosition, setUserPosition]     = useState(asPoint(routes[0].path[0]));
+  const [announcedIds, setAnnouncedIds]     = useState(new Set());
+  const [announcement, setAnnouncement]     = useState(null);
+  const [gpsError, setGpsError]             = useState('');
 
-  const [stationaryPosition, setStationaryPosition] = useState(DEMO_STATIONARY_POSITION);
+  // Mobile map overlay toggle
+  const [mobileShowMap, setMobileShowMap]   = useState(false);
+
+  const [stationaryPosition, setStationaryPosition]         = useState(DEMO_STATIONARY_POSITION);
   const [stationaryRadiusMeters, setStationaryRadiusMeters] = useState(700);
-  const [comfortPlaces, setComfortPlaces] = useState(() => getDemoComfortPlaces(DEMO_STATIONARY_POSITION, 700));
+  const [comfortPlaces, setComfortPlaces]                   = useState(() => getDemoComfortPlaces(DEMO_STATIONARY_POSITION, 700));
   const [selectedComfortPlaceId, setSelectedComfortPlaceId] = useState('');
-  const [stationaryStatus, setStationaryStatus] = useState('Demo data is loaded. Use your location for a live OpenStreetMap scan.');
-  const [isScanningComfort, setIsScanningComfort] = useState(false);
+  const [stationaryStatus, setStationaryStatus]             = useState('Tap "My Location" for a live scan, or use demo data.');
+  const [isScanningComfort, setIsScanningComfort]           = useState(false);
 
   const watchIdRef = useRef(null);
 
+  // ── Derived ──────────────────────────────────────────────────
   const selectedRoute = useMemo(
-    () => routes.find((route) => route.id === selectedRouteId) ?? routes[0],
+    () => routes.find(r => r.id === selectedRouteId) ?? routes[0],
     [selectedRouteId]
   );
 
   const routeLandmarks = useMemo(
-    () => landmarks.filter((landmark) => landmark.routeId === selectedRoute.id),
+    () => landmarks.filter(lm => lm.routeId === selectedRoute.id),
     [selectedRoute.id]
   );
 
@@ -71,14 +82,28 @@ export default function App() {
 
   const activeComfortPlaces = useMemo(
     () => comfortPlaces
-      .map((place) => ({
-        ...place,
-        distanceMeters: distanceMeters(stationaryPosition, place)
-      }))
+      .map(p => ({ ...p, distanceMeters: distanceMeters(stationaryPosition, p) }))
       .sort((a, b) => a.distanceMeters - b.distanceMeters),
     [comfortPlaces, stationaryPosition]
   );
 
+  const appMode = activeTab === 'travel' ? 'travel' : 'stationary';
+
+  // ── Geolocation: auto-request once on mount ───────────────────
+  useEffect(() => {
+    if (!('geolocation' in navigator)) return;
+    navigator.geolocation.getCurrentPosition(
+      pos => {
+        const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+        // Pre-populate stationary position with real location
+        setStationaryPosition(loc);
+      },
+      () => { /* silent fail — demo data still works */ },
+      { enableHighAccuracy: true, maximumAge: 60000, timeout: 12000 }
+    );
+  }, []);
+
+  // ── Actions ──────────────────────────────────────────────────
   function resetRide(nextRoute = selectedRoute) {
     setIsRunning(false);
     setProgressMeters(0);
@@ -89,24 +114,24 @@ export default function App() {
     if ('speechSynthesis' in window) window.speechSynthesis.cancel();
   }
 
-  function handleAppModeChange(nextMode) {
-    setAppMode(nextMode);
-    if (nextMode === 'stationary') {
+  function handleTabChange(tab) {
+    setActiveTab(tab);
+    setMobileShowMap(false);
+    if (tab !== 'travel') {
       setIsRunning(false);
-      setStationaryPosition(userPosition ?? DEMO_STATIONARY_POSITION);
       if ('speechSynthesis' in window) window.speechSynthesis.cancel();
     }
   }
 
   function handleRouteChange(routeId) {
-    const nextRoute = routes.find((route) => route.id === routeId) ?? routes[0];
+    const next = routes.find(r => r.id === routeId) ?? routes[0];
     setSelectedRouteId(routeId);
-    resetRide(nextRoute);
+    resetRide(next);
   }
 
   function startRide() {
     if (mode === 'gps' && !('geolocation' in navigator)) {
-      setGpsError('GPS is not available in this browser. Use Demo ride instead.');
+      setGpsError('GPS not available. Use Demo ride instead.');
       return;
     }
     setIsRunning(true);
@@ -120,24 +145,20 @@ export default function App() {
   async function scanComfortPlaces(origin = stationaryPosition, radius = stationaryRadiusMeters) {
     setIsScanningComfort(true);
     setStationaryStatus(`Scanning OpenStreetMap within ${formatMeters(radius)}…`);
-
     try {
-      const livePlaces = await fetchComfortPlaces(origin, radius);
-      const fallbackPlaces = getDemoComfortPlaces(origin, radius);
-      const nextPlaces = livePlaces.length > 0 ? livePlaces : fallbackPlaces;
-
-      setComfortPlaces(nextPlaces);
-      setSelectedComfortPlaceId(nextPlaces[0]?.id ?? '');
-      setStationaryStatus(
-        livePlaces.length > 0
-          ? `Live scan complete: found ${livePlaces.length} nearby places.`
-          : 'Live scan returned no places here, so demo fallback data is shown.'
-      );
-    } catch (error) {
-      const fallbackPlaces = getDemoComfortPlaces(origin, radius);
-      setComfortPlaces(fallbackPlaces);
-      setSelectedComfortPlaceId(fallbackPlaces[0]?.id ?? '');
-      setStationaryStatus(`Live scan failed, so demo fallback data is shown. ${error.message}`);
+      const live = await fetchComfortPlaces(origin, radius);
+      const fallback = getDemoComfortPlaces(origin, radius);
+      const next = live.length > 0 ? live : fallback;
+      setComfortPlaces(next);
+      setSelectedComfortPlaceId(next[0]?.id ?? '');
+      setStationaryStatus(live.length > 0
+        ? `Found ${live.length} nearby places.`
+        : 'No live results — showing curated data.');
+    } catch (err) {
+      const fallback = getDemoComfortPlaces(origin, radius);
+      setComfortPlaces(fallback);
+      setSelectedComfortPlaceId(fallback[0]?.id ?? '');
+      setStationaryStatus(`Offline — showing demo data. ${err.message}`);
     } finally {
       setIsScanningComfort(false);
     }
@@ -150,121 +171,99 @@ export default function App() {
 
   function useMyLocationAndScan() {
     if (!('geolocation' in navigator)) {
-      setStationaryStatus('Geolocation is not available in this browser. Demo location still works.');
+      setStationaryStatus('Geolocation not available. Demo location still works.');
       return;
     }
-
-    setStationaryStatus('Requesting location permission…');
+    setStationaryStatus('Getting your location…');
     navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const nextPosition = {
-          lat: position.coords.latitude,
-          lng: position.coords.longitude
-        };
-        setStationaryPosition(nextPosition);
-        scanComfortPlaces(nextPosition, stationaryRadiusMeters);
+      pos => {
+        const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+        setStationaryPosition(loc);
+        scanComfortPlaces(loc, stationaryRadiusMeters);
       },
-      (error) => {
-        setStationaryStatus(`Location failed: ${error.message}. Demo location still works.`);
-      },
-      {
-        enableHighAccuracy: true,
-        maximumAge: 3000,
-        timeout: 10000
-      }
+      err => setStationaryStatus(`Location failed: ${err.message}. Demo data still works.`),
+      { enableHighAccuracy: true, maximumAge: 3000, timeout: 12000 }
     );
   }
 
-  useEffect(() => {
-    if (mode !== 'demo' || !isRunning || appMode !== 'travel') return;
+  // ── Effects ──────────────────────────────────────────────────
 
-    const intervalId = window.setInterval(() => {
-      setProgressMeters((current) => {
-        const next = Math.min(current + demoSpeed, totalDistanceMeters);
-        if (next >= totalDistanceMeters) {
-          setIsRunning(false);
-        }
+  // Demo ride tick
+  useEffect(() => {
+    if (mode !== 'demo' || !isRunning || activeTab !== 'travel') return;
+    const id = window.setInterval(() => {
+      setProgressMeters(cur => {
+        const next = Math.min(cur + demoSpeed, totalDistanceMeters);
+        if (next >= totalDistanceMeters) setIsRunning(false);
         return next;
       });
     }, 850);
+    return () => window.clearInterval(id);
+  }, [activeTab, mode, isRunning, demoSpeed, totalDistanceMeters]);
 
-    return () => window.clearInterval(intervalId);
-  }, [appMode, mode, isRunning, demoSpeed, totalDistanceMeters]);
-
+  // Sync demo user position
   useEffect(() => {
-    if (mode === 'demo') {
-      setUserPosition(routeState.point);
-    }
+    if (mode === 'demo') setUserPosition(routeState.point);
   }, [mode, routeState]);
 
+  // GPS watch
   useEffect(() => {
-    if (mode !== 'gps' || !isRunning || appMode !== 'travel') {
+    if (mode !== 'gps' || !isRunning || activeTab !== 'travel') {
       if (watchIdRef.current !== null && 'geolocation' in navigator) {
         navigator.geolocation.clearWatch(watchIdRef.current);
         watchIdRef.current = null;
       }
       return;
     }
-
     setGpsError('');
     watchIdRef.current = navigator.geolocation.watchPosition(
-      (position) => {
-        setUserPosition({
-          lat: position.coords.latitude,
-          lng: position.coords.longitude
-        });
-      },
-      () => {
-        setGpsError('Could not access your location. On a laptop, Demo ride is more reliable.');
-      },
-      {
-        enableHighAccuracy: true,
-        maximumAge: 3000,
-        timeout: 10000
-      }
+      pos => setUserPosition({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      ()  => setGpsError('Could not access location. Demo ride is more reliable.'),
+      { enableHighAccuracy: true, maximumAge: 3000, timeout: 10000 }
     );
-
     return () => {
       if (watchIdRef.current !== null && 'geolocation' in navigator) {
         navigator.geolocation.clearWatch(watchIdRef.current);
         watchIdRef.current = null;
       }
     };
-  }, [appMode, mode, isRunning]);
+  }, [activeTab, mode, isRunning]);
 
+  // Landmark announcements
   useEffect(() => {
-    if (appMode !== 'travel' || !isRunning || !userPosition) return;
-
-    const nextLandmark = routeLandmarks.find((landmark) => {
-      if (announcedIds.has(landmark.id)) return false;
-      const distance = distanceMeters(userPosition, { lat: landmark.lat, lng: landmark.lng });
-      return distance <= landmark.triggerRadiusMeters;
+    if (activeTab !== 'travel' || !isRunning || !userPosition) return;
+    const next = routeLandmarks.find(lm => {
+      if (announcedIds.has(lm.id)) return false;
+      return distanceMeters(userPosition, { lat: lm.lat, lng: lm.lng }) <= lm.triggerRadiusMeters;
     });
-
-    if (!nextLandmark) return;
-
-    const targetPoint = { lat: nextLandmark.lat, lng: nextLandmark.lng };
-    const side = sideOfTravel(userPosition, routeState.nextPoint, targetPoint);
-    const distance = distanceMeters(userPosition, targetPoint);
-    const text = `Look to your ${side}. ${nextLandmark.message} About ${formatMeters(distance)} away.`;
-
-    setAnnouncedIds((current) => new Set([...current, nextLandmark.id]));
-    setAnnouncement({ landmark: nextLandmark, side, text });
+    if (!next) return;
+    const target = { lat: next.lat, lng: next.lng };
+    const side = sideOfTravel(userPosition, routeState.nextPoint, target);
+    const dist = distanceMeters(userPosition, target);
+    const text = `Look to your ${side}. ${next.message} About ${formatMeters(dist)} away.`;
+    setAnnouncedIds(cur => new Set([...cur, next.id]));
+    setAnnouncement({ landmark: next, side, text });
     if (voiceEnabled) speak(text);
-  }, [appMode, isRunning, userPosition, routeLandmarks, announcedIds, routeState.nextPoint, voiceEnabled]);
+  }, [activeTab, isRunning, userPosition, routeLandmarks, announcedIds, routeState.nextPoint, voiceEnabled]);
 
+  // Default comfort selection
   useEffect(() => {
     if (!selectedComfortPlaceId && activeComfortPlaces.length > 0) {
       setSelectedComfortPlaceId(activeComfortPlaces[0].id);
     }
   }, [selectedComfortPlaceId, activeComfortPlaces]);
 
+  // ── Render ───────────────────────────────────────────────────
+  const mapPosition = activeTab === 'travel' ? userPosition : stationaryPosition;
+
   return (
     <main className="app-shell">
-      <div className="sidebar">
-        <ModeSwitcher appMode={appMode} onChange={handleAppModeChange} />
 
-        {appMode === 'travel' ? (
+      {/* ── Sidebar ── */}
+      <div className="sidebar">
+        <ModeSwitcher appMode={activeTab} onChange={handleTabChange} />
+
+        {activeTab === 'travel' && (
           <>
             <RoutePanel
               routes={routes}
@@ -284,14 +283,15 @@ export default function App() {
               setVoiceEnabled={setVoiceEnabled}
               gpsError={gpsError}
             />
-
             <AnnouncementCard
               announcement={announcement}
               upcomingLandmarks={routeLandmarks}
               announcedIds={announcedIds}
             />
           </>
-        ) : (
+        )}
+
+        {activeTab === 'stationary' && (
           <StationaryPanel
             origin={stationaryPosition}
             radiusMeters={stationaryRadiusMeters}
@@ -306,21 +306,26 @@ export default function App() {
             status={stationaryStatus}
           />
         )}
+
+        {activeTab === 'articles' && <ArticlesPanel />}
       </div>
 
-      <section className="map-wrap">
-        <TransitMap
-          appMode={appMode}
-          route={selectedRoute}
-          routeLandmarks={routeLandmarks}
-          userPosition={appMode === 'travel' ? userPosition : stationaryPosition}
-          announcedIds={announcedIds}
-          comfortPlaces={activeComfortPlaces}
-          stationaryRadiusMeters={stationaryRadiusMeters}
-          selectedComfortPlaceId={selectedComfortPlaceId}
-          onSelectComfortPlace={setSelectedComfortPlaceId}
-        />
-      </section>
+      {/* ── Map (hidden for articles tab) ── */}
+      {activeTab !== 'articles' && (
+        <section className="map-wrap">
+          <TransitMap
+            appMode={appMode}
+            route={selectedRoute}
+            routeLandmarks={routeLandmarks}
+            userPosition={mapPosition}
+            announcedIds={announcedIds}
+            comfortPlaces={activeComfortPlaces}
+            stationaryRadiusMeters={stationaryRadiusMeters}
+            selectedComfortPlaceId={selectedComfortPlaceId}
+            onSelectComfortPlace={setSelectedComfortPlaceId}
+          />
+        </section>
+      )}
     </main>
   );
 }

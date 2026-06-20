@@ -259,7 +259,8 @@ export default function StationaryPanel({
   onUseDemoLocation,
   onScan,
   isScanning,
-  status
+  status,
+  onShowMap
 }) {
   const selectedPlace = places.find((place) => place.id === selectedPlaceId) ?? places[0];
 
@@ -292,12 +293,18 @@ export default function StationaryPanel({
 
       <div className="stationary-actions">
         <button className="primary" onClick={onUseMyLocation} disabled={isScanning}>
-          Use my location + scan
+          📍 My Location
         </button>
         <button onClick={onUseDemoLocation} disabled={isScanning}>
           Demo location
         </button>
       </div>
+
+      {onShowMap && (
+        <button className="full-button secondary map-toggle-btn" onClick={onShowMap}>
+          🗺 View Map
+        </button>
+      )}
 
       <label className="field">
         <span>Search radius</span>
@@ -396,22 +403,35 @@ export default function StationaryPanel({
         {places.length === 0 ? (
           <p className="muted-copy">No places loaded yet. Try the demo location or run a live scan.</p>
         ) : (
-          places.map((place) => (
-            <button
-              className={`comfort-row ${place.id === selectedPlaceId ? 'active' : ''}`}
-              key={place.id}
-              onClick={() => onSelectPlace(place.id)}
-            >
-              <div>
-                <strong>{place.name}</strong>
-                <p>
-                  {place.category} · {formatMeters(place.distanceMeters)} away · {place.source}
-                </p>
-                {detailLine(place) && <small>{detailLine(place)}</small>}
-              </div>
-              <span>{place.category}</span>
-            </button>
-          ))
+          places.map((place) => {
+            const categoryEmoji =
+              place.category === 'Washroom' ? '🚻' :
+              place.category === 'Water' ? '💧' :
+              place.category === 'Cafe' ? '☕' :
+              place.category === 'Transit' ? '🚉' :
+              place.category === 'Park' ? '🌳' :
+              place.category === 'Food' ? '🍽️' : '📍';
+
+            return (
+              <button
+                className={`comfort-row ${place.id === selectedPlaceId ? 'active' : ''}`}
+                key={place.id}
+                onClick={() => onSelectPlace(place.id)}
+              >
+                <div className="comfort-row-icon">{categoryEmoji}</div>
+                <div className="comfort-row-content">
+                  <strong>{place.name}</strong>
+                  <p>
+                    {formatMeters(place.distanceMeters)} away
+                    {place.openingHours ? ` · ${place.openingHours}` : ''}
+                  </p>
+                  {place.notes && <small>{place.notes}</small>}
+                  {!place.notes && detailLine(place) && <small>{detailLine(place)}</small>}
+                </div>
+                <span className="comfort-category-badge">{place.category}</span>
+              </button>
+            );
+          })
         )}
       </div>
     </section>

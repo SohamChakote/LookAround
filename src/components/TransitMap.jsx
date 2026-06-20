@@ -74,8 +74,10 @@ export default function TransitMap({
   return (
     <MapContainer center={center} zoom={13} scrollWheelZoom className="map-container">
       <TileLayer
-        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+        url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+        subdomains="abcd"
+        maxZoom={20}
       />
 
       <MapViewController
@@ -87,7 +89,12 @@ export default function TransitMap({
 
       {appMode === 'travel' && (
         <>
-          <Polyline positions={route.path} weight={6} opacity={0.75} />
+          <Polyline
+            positions={route.path}
+            weight={5}
+            opacity={0.9}
+            pathOptions={{ color: route.color ?? '#38bdf8' }}
+          />
 
           {routeLandmarks.map((landmark) => {
             const wasAnnounced = announcedIds.has(landmark.id);
@@ -109,7 +116,12 @@ export default function TransitMap({
               key={`${landmark.id}-radius`}
               center={[landmark.lat, landmark.lng]}
               radius={landmark.triggerRadiusMeters}
-              pathOptions={{ opacity: 0.2, fillOpacity: 0.04 }}
+              pathOptions={{
+                color: route.color ?? '#38bdf8',
+                opacity: 0.25,
+                fillOpacity: 0.05,
+                weight: 1
+              }}
             />
           ))}
         </>

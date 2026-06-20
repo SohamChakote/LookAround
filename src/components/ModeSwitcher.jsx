@@ -15,6 +15,13 @@ export default function ModeSwitcher({ appMode, onChange }) {
         <span>Stationary Mode</span>
         <small>Nearby washrooms</small>
       </button>
+      <button
+        className={appMode === 'articles' ? 'active' : ''}
+        onClick={() => onChange('articles')}
+      >
+        <span>Discover</span>
+        <small>Vancouver articles</small>
+      </button>
     </section>
   );
 }

@@ -16,7 +16,8 @@ export default function RoutePanel({
   setDemoSpeed,
   voiceEnabled,
   setVoiceEnabled,
-  gpsError
+  gpsError,
+  onShowMap
 }) {
   const progressPercent = totalDistanceMeters
     ? Math.min(100, Math.round((progressMeters / totalDistanceMeters) * 100))
@@ -80,6 +81,12 @@ export default function RoutePanel({
         )}
         <button onClick={onReset}>Reset</button>
       </div>
+
+      {onShowMap && (
+        <button className="full-button secondary map-toggle-btn" onClick={onShowMap}>
+          🗺 View Map
+        </button>
+      )}
 
       <div className="progress-block">
         <div className="progress-label">
