@@ -4,6 +4,7 @@ import RoutePanel from "./components/RoutePanel.jsx";
 import AnnouncementCard from "./components/AnnouncementCard.jsx";
 import ModeSwitcher from "./components/ModeSwitcher.jsx";
 import StationaryPanel from "./components/StationaryPanel.jsx";
+import ArticlesPanel from "./components/ArticlesPanel.jsx";
 import { routes } from "./data/routes.js";
 import { scenicLandmarks } from "./data/scenicLandmarks.js";
 import { getDemoComfortPlaces } from "./data/comfortPlaces.js";
@@ -323,7 +324,7 @@ export default function App() {
       <div className="sidebar">
         <ModeSwitcher appMode={appMode} onChange={handleAppModeChange} />
 
-        {appMode === "travel" ? (
+        {appMode === "travel" && (
           <>
             <RoutePanel
               routes={routes}
@@ -350,7 +351,9 @@ export default function App() {
               announcedIds={announcedIds}
             />
           </>
-        ) : (
+        )}
+
+        {appMode === "stationary" && (
           <StationaryPanel
             origin={stationaryPosition}
             radiusMeters={stationaryRadiusMeters}
@@ -367,24 +370,28 @@ export default function App() {
             status={stationaryStatus}
           />
         )}
+
+        {appMode === "articles" && <ArticlesPanel />}
       </div>
 
-      <section className="map-wrap">
-        <TransitMap
-          appMode={appMode}
-          route={selectedRoute}
-          routeLandmarks={routeLandmarks}
-          userPosition={
-            appMode === "travel" ? userPosition : stationaryPosition
-          }
-          announcedIds={announcedIds}
-          comfortPlaces={activeComfortPlaces}
-          stationaryRadiusMeters={stationaryRadiusMeters}
-          selectedComfortPlaceId={selectedComfortPlaceId}
-          onSelectComfortPlace={setSelectedComfortPlaceId}
-          onRouteJump={handleRouteJump}
-        />
-      </section>
+      {appMode !== "articles" && (
+        <section className="map-wrap">
+          <TransitMap
+            appMode={appMode}
+            route={selectedRoute}
+            routeLandmarks={routeLandmarks}
+            userPosition={
+              appMode === "travel" ? userPosition : stationaryPosition
+            }
+            announcedIds={announcedIds}
+            comfortPlaces={activeComfortPlaces}
+            stationaryRadiusMeters={stationaryRadiusMeters}
+            selectedComfortPlaceId={selectedComfortPlaceId}
+            onSelectComfortPlace={setSelectedComfortPlaceId}
+            onRouteJump={handleRouteJump}
+          />
+        </section>
+      )}
     </main>
   );
 }
